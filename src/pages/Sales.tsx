@@ -1,36 +1,15 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Search, Plus, Trash2, Pause, Play, X } from "lucide-react";
+import { Search, Plus, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
-
-interface InvoiceItem {
-  id: string;
-  productName: string;
-  scientificName: string;
-  barcode: string;
-  price: number;
-  quantity: number;
-  available: number;
-  expiry: string;
-}
+import { CategoryBar, ProductGrid, demoProducts } from "@/components/sales/CategoryProductGrid";
+import { TodayInvoicesSidebar, type TodayInvoice } from "@/components/sales/TodayInvoicesSidebar";
+import { InvoiceTable, type InvoiceItem } from "@/components/sales/InvoiceTable";
+import { PaymentActions } from "@/components/sales/PaymentActions";
+import type { Product } from "@/components/sales/CategoryProductGrid";
 
 interface Invoice {
   id: string;
@@ -44,7 +23,9 @@ export default function Sales() {
   ]);
   const [activeInvoiceId, setActiveInvoiceId] = useState("1");
   const [searchQuery, setSearchQuery] = useState("");
-  const [paymentMethod, setPaymentMethod] = useState("cash");
+  const [selectedCategory, setSelectedCategory] = useState("all");
+  const [todayInvoices, setTodayInvoices] = useState<TodayInvoice[]>([]);
+  const [selectedTodayInvoice, setSelectedTodayInvoice] = useState<string | null>(null);
   const barcodeRef = useRef<HTMLInputElement>(null);
 
   const activeInvoice = invoices.find((inv) => inv.id === activeInvoiceId);
@@ -63,15 +44,7 @@ export default function Sales() {
       }
       if (e.key === "F4") {
         e.preventDefault();
-        // Suspend current and create new
-        setInvoices((prev) => {
-          const updated = prev.map((inv) =>
-            inv.id === activeInvoiceId ? { ...inv, status: "suspended" as const } : inv
-          );
-          const newId = String(Date.now());
-          return [...updated, { id: newId, items: [], status: "active" as const }];
-        });
-        setActiveInvoiceId(String(Date.now()));
+        handleSuspend();
       }
     },
     [activeInvoiceId]
@@ -82,19 +55,22 @@ export default function Sales() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleKeyDown]);
 
-  const handleBarcodeSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!searchQuery.trim()) return;
-    // Demo: add a placeholder item
+  const addProductToInvoice = (product: Product) => {
+    const existing = activeInvoice?.items.find((i) => i.barcode === product.barcode);
+    if (existing) {
+      updateQuantity(existing.id, existing.quantity + 1);
+      return;
+    }
+
     const newItem: InvoiceItem = {
       id: String(Date.now()),
-      productName: `صنف - ${searchQuery}`,
-      scientificName: "الاسم العلمي",
-      barcode: searchQuery,
-      price: 100,
+      productName: product.name,
+      scientificName: product.scientificName,
+      barcode: product.barcode,
+      price: product.price,
       quantity: 1,
-      available: 50,
-      expiry: "2026-12",
+      available: product.available,
+      expiry: product.expiry,
     };
     setInvoices((prev) =>
       prev.map((inv) =>
@@ -103,8 +79,21 @@ export default function Sales() {
           : inv
       )
     );
+    toast.success(`تم إضافة: ${product.name}`);
+  };
+
+  const handleBarcodeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!searchQuery.trim()) return;
+    const found = demoProducts.find(
+      (p) => p.barcode === searchQuery.trim() || p.name.includes(searchQuery.trim())
+    );
+    if (found) {
+      addProductToInvoice(found);
+    } else {
+      toast.error("لم يتم العثور على الصنف");
+    }
     setSearchQuery("");
-    toast.success("تم إضافة الصنف");
   };
 
   const removeItem = (itemId: string) => {
@@ -133,16 +122,54 @@ export default function Sales() {
     );
   };
 
-  const handlePayment = () => {
+  const completePayment = (method: string) => {
     if (!activeInvoice?.items.length) {
       toast.error("الفاتورة فارغة");
       return;
     }
-    toast.success(`تم الدفع بنجاح - ${paymentMethod === "cash" ? "نقدي" : paymentMethod}`);
-    setInvoices((prev) => prev.filter((inv) => inv.id !== activeInvoiceId));
+    const invoiceNumber = todayInvoices.length + 1;
+    const now = new Date();
+    setTodayInvoices((prev) => [
+      {
+        id: activeInvoiceId,
+        number: invoiceNumber,
+        total,
+        time: `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`,
+        itemsCount: activeInvoice.items.length,
+      },
+      ...prev,
+    ]);
+    toast.success(`تم الدفع بنجاح - ${method}`);
+
     const newId = String(Date.now());
-    setInvoices((prev) => [...prev, { id: newId, items: [], status: "active" }]);
+    setInvoices((prev) => [
+      ...prev.filter((inv) => inv.id !== activeInvoiceId),
+      { id: newId, items: [], status: "active" },
+    ]);
     setActiveInvoiceId(newId);
+  };
+
+  const handleSuspend = () => {
+    if (!activeInvoice?.items.length) return;
+    setInvoices((prev) =>
+      prev.map((inv) =>
+        inv.id === activeInvoiceId ? { ...inv, status: "suspended" as const } : inv
+      )
+    );
+    const newId = String(Date.now());
+    setInvoices((prev) => [...prev, { id: newId, items: [], status: "active" as const }]);
+    setActiveInvoiceId(newId);
+    toast.info("تم تعليق الفاتورة");
+  };
+
+  const handleCancel = () => {
+    if (!activeInvoice?.items.length) return;
+    setInvoices((prev) =>
+      prev.map((inv) =>
+        inv.id === activeInvoiceId ? { ...inv, items: [] } : inv
+      )
+    );
+    toast.warning("تم إلغاء الفاتورة");
   };
 
   const suspendedInvoices = invoices.filter(
@@ -150,166 +177,107 @@ export default function Sales() {
   );
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">شاشة المبيعات</h1>
-        <div className="flex gap-2">
-          {suspendedInvoices.length > 0 && (
-            <Badge variant="secondary" className="gap-1">
-              <Pause className="h-3 w-3" />
-              {suspendedInvoices.length} فاتورة معلقة
-            </Badge>
-          )}
-          <Badge variant="outline">F2: بحث | F4: تعليق</Badge>
-        </div>
+    <div className="flex gap-3 h-[calc(100vh-5rem)]">
+      {/* Today's invoices sidebar */}
+      <div className="w-48 shrink-0 hidden lg:block">
+        <Card className="h-full overflow-hidden">
+          <TodayInvoicesSidebar
+            invoices={todayInvoices}
+            activeId={selectedTodayInvoice}
+            onSelect={setSelectedTodayInvoice}
+          />
+        </Card>
       </div>
 
-      {/* Suspended invoices bar */}
-      {suspendedInvoices.length > 0 && (
-        <div className="flex gap-2 flex-wrap">
-          {suspendedInvoices.map((inv) => (
-            <Button
-              key={inv.id}
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                setInvoices((prev) =>
-                  prev.map((i) =>
-                    i.id === inv.id ? { ...i, status: "active" } : i
-                  )
-                );
-                setActiveInvoiceId(inv.id);
-              }}
-              className="gap-2"
-            >
-              <Play className="h-3 w-3" />
-              فاتورة ({inv.items.length} أصناف)
-            </Button>
-          ))}
-        </div>
-      )}
-
-      {/* Barcode input */}
-      <Card>
-        <CardContent className="p-4">
-          <form onSubmit={handleBarcodeSubmit} className="flex gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                ref={barcodeRef}
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="أدخل الباركود أو اسم الصنف (F2)"
-                className="pr-10"
-              />
-            </div>
-            <Button type="submit">
-              <Plus className="h-4 w-4 ml-1" />
-              إضافة
-            </Button>
-          </form>
-        </CardContent>
-      </Card>
-
-      {/* Invoice table */}
-      <Card>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="text-right">#</TableHead>
-                  <TableHead className="text-right">اسم الصنف</TableHead>
-                  <TableHead className="text-right">الاسم العلمي</TableHead>
-                  <TableHead className="text-right">الصلاحية</TableHead>
-                  <TableHead className="text-right">السعر</TableHead>
-                  <TableHead className="text-right">الكمية</TableHead>
-                  <TableHead className="text-right">الإجمالي</TableHead>
-                  <TableHead className="text-right w-10"></TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {activeInvoice?.items.length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground py-12">
-                      أدخل الباركود أو ابحث عن صنف لبدء الفاتورة
-                    </TableCell>
-                  </TableRow>
-                )}
-                {activeInvoice?.items.map((item, idx) => (
-                  <TableRow key={item.id}>
-                    <TableCell>{idx + 1}</TableCell>
-                    <TableCell className="font-medium">{item.productName}</TableCell>
-                    <TableCell className="text-muted-foreground">{item.scientificName}</TableCell>
-                    <TableCell>
-                      <Badge variant="outline" className="text-xs">
-                        {item.expiry}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{item.price}</TableCell>
-                    <TableCell>
-                      <Input
-                        type="number"
-                        min={1}
-                        max={item.available}
-                        value={item.quantity}
-                        onChange={(e) => updateQuantity(item.id, parseInt(e.target.value) || 1)}
-                        className="w-16 text-center"
-                      />
-                    </TableCell>
-                    <TableCell className="font-semibold">
-                      {item.price * item.quantity}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => removeItem(item.id)}
-                        className="text-destructive hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Payment section */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <Select value={paymentMethod} onValueChange={setPaymentMethod}>
-                <SelectTrigger className="w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="cash">نقدي</SelectItem>
-                  <SelectItem value="mobicash">موبي كاش</SelectItem>
-                  <SelectItem value="edfaaly">ادفع لي</SelectItem>
-                  <SelectItem value="yusr">يسر</SelectItem>
-                  <SelectItem value="credit">بيع آجل</SelectItem>
-                  <SelectItem value="damage">إتلاف</SelectItem>
-                  <SelectItem value="lost">مفقود</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-6">
-              <div className="text-left">
-                <p className="text-sm text-muted-foreground">الإجمالي</p>
-                <p className="text-3xl font-bold text-primary">{total} ج.س</p>
-              </div>
-              <Button size="lg" onClick={handlePayment} className="px-8">
-                دفع
+      {/* Main POS area */}
+      <div className="flex-1 flex flex-col gap-3 min-w-0">
+        {/* Suspended invoices bar */}
+        {suspendedInvoices.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            {suspendedInvoices.map((inv) => (
+              <Button
+                key={inv.id}
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  setInvoices((prev) =>
+                    prev.map((i) =>
+                      i.id === inv.id ? { ...i, status: "active" as const } : i
+                    )
+                  );
+                  setActiveInvoiceId(inv.id);
+                }}
+                className="gap-2 border-accent text-accent"
+              >
+                <Play className="h-3 w-3" />
+                فاتورة معلقة ({inv.items.length} أصناف)
               </Button>
-            </div>
+            ))}
           </div>
-        </CardContent>
-      </Card>
+        )}
+
+        {/* Barcode input */}
+        <Card>
+          <CardContent className="p-3">
+            <form onSubmit={handleBarcodeSubmit} className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                <Input
+                  ref={barcodeRef}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="أدخل الباركود أو اسم الصنف (F2)"
+                  className="pr-10 h-10"
+                />
+              </div>
+              <Button type="submit" className="gap-1">
+                <Plus className="h-4 w-4" />
+                إضافة
+              </Button>
+              <Badge variant="outline" className="hidden sm:flex items-center text-xs">
+                F2: بحث | F4: تعليق
+              </Badge>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Categories + Product Grid */}
+        <Card className="shrink-0">
+          <CardContent className="p-3 space-y-2">
+            <CategoryBar selectedCategory={selectedCategory} onSelect={setSelectedCategory} />
+            <ProductGrid selectedCategory={selectedCategory} onAddProduct={addProductToInvoice} />
+          </CardContent>
+        </Card>
+
+        {/* Invoice Table */}
+        <Card className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <CardContent className="p-0 flex-1 flex flex-col">
+            <InvoiceTable
+              items={activeInvoice?.items || []}
+              onUpdateQuantity={updateQuantity}
+              onRemoveItem={removeItem}
+            />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Payment sidebar */}
+      <div className="w-64 shrink-0 hidden md:block">
+        <Card className="h-full">
+          <CardContent className="p-3 h-full flex flex-col justify-end">
+            <PaymentActions
+              total={total}
+              onPayCash={() => completePayment("نقدي")}
+              onPayService={(m) => completePayment(m)}
+              onPayCredit={() => completePayment("آجل")}
+              onReturn={() => toast.info("وضع الاسترجاع - قريباً")}
+              onCancel={handleCancel}
+              onSuspend={handleSuspend}
+              disabled={!activeInvoice?.items.length}
+            />
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 }
