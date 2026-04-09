@@ -11,7 +11,6 @@ import {
   Settings,
   Pill,
   LogOut,
-  ChevronLeft,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -53,7 +52,6 @@ const managementItems = [
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
-  const location = useLocation();
 
   const renderItems = (items: typeof mainItems) =>
     items.map((item) => (
