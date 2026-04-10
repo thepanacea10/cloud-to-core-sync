@@ -46,8 +46,12 @@ export default function Sales() {
         e.preventDefault();
         handleSuspend();
       }
+      if (e.key === "F10") {
+        e.preventDefault();
+        completePayment("نقدي");
+      }
     },
-    [activeInvoiceId]
+    [activeInvoiceId, total]
   );
 
   useEffect(() => {
@@ -61,7 +65,6 @@ export default function Sales() {
       updateQuantity(existing.id, existing.quantity + 1);
       return;
     }
-
     const newItem: InvoiceItem = {
       id: String(Date.now()),
       productName: product.name,
@@ -74,9 +77,7 @@ export default function Sales() {
     };
     setInvoices((prev) =>
       prev.map((inv) =>
-        inv.id === activeInvoiceId
-          ? { ...inv, items: [...inv.items, newItem] }
-          : inv
+        inv.id === activeInvoiceId ? { ...inv, items: [...inv.items, newItem] } : inv
       )
     );
     toast.success(`تم إضافة: ${product.name}`);
@@ -99,9 +100,7 @@ export default function Sales() {
   const removeItem = (itemId: string) => {
     setInvoices((prev) =>
       prev.map((inv) =>
-        inv.id === activeInvoiceId
-          ? { ...inv, items: inv.items.filter((i) => i.id !== itemId) }
-          : inv
+        inv.id === activeInvoiceId ? { ...inv, items: inv.items.filter((i) => i.id !== itemId) } : inv
       )
     );
   };
@@ -111,12 +110,7 @@ export default function Sales() {
     setInvoices((prev) =>
       prev.map((inv) =>
         inv.id === activeInvoiceId
-          ? {
-              ...inv,
-              items: inv.items.map((i) =>
-                i.id === itemId ? { ...i, quantity: qty } : i
-              ),
-            }
+          ? { ...inv, items: inv.items.map((i) => (i.id === itemId ? { ...i, quantity: qty } : i)) }
           : inv
       )
     );
@@ -140,7 +134,6 @@ export default function Sales() {
       ...prev,
     ]);
     toast.success(`تم الدفع بنجاح - ${method}`);
-
     const newId = String(Date.now());
     setInvoices((prev) => [
       ...prev.filter((inv) => inv.id !== activeInvoiceId),
@@ -178,9 +171,9 @@ export default function Sales() {
 
   return (
     <div className="flex gap-3 h-[calc(100vh-5rem)]">
-      {/* Today's invoices sidebar */}
-      <div className="w-48 shrink-0 hidden lg:block">
-        <Card className="h-full overflow-hidden">
+      {/* RIGHT: Today's invoices sidebar */}
+      <div className="w-48 shrink-0 hidden lg:flex flex-col gap-3">
+        <Card className="h-full overflow-hidden flex flex-col">
           <TodayInvoicesSidebar
             invoices={todayInvoices}
             activeId={selectedTodayInvoice}
@@ -189,9 +182,9 @@ export default function Sales() {
         </Card>
       </div>
 
-      {/* Main POS area */}
-      <div className="flex-1 flex flex-col gap-3 min-w-0">
-        {/* Suspended invoices bar */}
+      {/* MIDDLE: Invoice basket */}
+      <div className="w-80 shrink-0 flex flex-col gap-3 min-w-0">
+        {/* Suspended invoices */}
         {suspendedInvoices.length > 0 && (
           <div className="flex gap-2 flex-wrap">
             {suspendedInvoices.map((inv) => (
@@ -201,53 +194,18 @@ export default function Sales() {
                 size="sm"
                 onClick={() => {
                   setInvoices((prev) =>
-                    prev.map((i) =>
-                      i.id === inv.id ? { ...i, status: "active" as const } : i
-                    )
+                    prev.map((i) => (i.id === inv.id ? { ...i, status: "active" as const } : i))
                   );
                   setActiveInvoiceId(inv.id);
                 }}
                 className="gap-2 border-accent text-accent"
               >
                 <Play className="h-3 w-3" />
-                فاتورة معلقة ({inv.items.length} أصناف)
+                معلقة ({inv.items.length})
               </Button>
             ))}
           </div>
         )}
-
-        {/* Barcode input */}
-        <Card>
-          <CardContent className="p-3">
-            <form onSubmit={handleBarcodeSubmit} className="flex gap-2">
-              <div className="relative flex-1">
-                <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  ref={barcodeRef}
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="أدخل الباركود أو اسم الصنف (F2)"
-                  className="pr-10 h-10"
-                />
-              </div>
-              <Button type="submit" className="gap-1">
-                <Plus className="h-4 w-4" />
-                إضافة
-              </Button>
-              <Badge variant="outline" className="hidden sm:flex items-center text-xs">
-                F2: بحث | F4: تعليق
-              </Badge>
-            </form>
-          </CardContent>
-        </Card>
-
-        {/* Categories + Product Grid */}
-        <Card className="shrink-0">
-          <CardContent className="p-3 space-y-2">
-            <CategoryBar selectedCategory={selectedCategory} onSelect={setSelectedCategory} />
-            <ProductGrid selectedCategory={selectedCategory} onAddProduct={addProductToInvoice} />
-          </CardContent>
-        </Card>
 
         {/* Invoice Table */}
         <Card className="flex-1 min-h-0 flex flex-col overflow-hidden">
@@ -259,12 +217,10 @@ export default function Sales() {
             />
           </CardContent>
         </Card>
-      </div>
 
-      {/* Payment sidebar */}
-      <div className="w-64 shrink-0 hidden md:block">
-        <Card className="h-full">
-          <CardContent className="p-3 h-full flex flex-col justify-end">
+        {/* Payment */}
+        <Card>
+          <CardContent className="p-3">
             <PaymentActions
               total={total}
               onPayCash={() => completePayment("نقدي")}
@@ -275,6 +231,44 @@ export default function Sales() {
               onSuspend={handleSuspend}
               disabled={!activeInvoice?.items.length}
             />
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* LEFT: Search + Categories + Product Grid */}
+      <div className="flex-1 flex flex-col gap-3 min-w-0">
+        {/* Search bar */}
+        <Card>
+          <CardContent className="p-3">
+            <form onSubmit={handleBarcodeSubmit} className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-muted-foreground" />
+                <Input
+                  ref={barcodeRef}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="أدخل الباركود أو اسم الصنف (F2)"
+                  className="pr-11 h-12 text-lg"
+                />
+              </div>
+              <Button type="submit" size="lg" className="gap-2 h-12 px-6">
+                <Plus className="h-5 w-5" />
+                إضافة
+              </Button>
+              <Badge variant="outline" className="hidden xl:flex items-center text-xs whitespace-nowrap">
+                F2: بحث | F4: تعليق | F10: دفع
+              </Badge>
+            </form>
+          </CardContent>
+        </Card>
+
+        {/* Categories + Grid */}
+        <Card className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          <CardContent className="p-3 flex flex-col flex-1 min-h-0 gap-2">
+            <CategoryBar selectedCategory={selectedCategory} onSelect={setSelectedCategory} />
+            <div className="flex-1 min-h-0">
+              <ProductGrid selectedCategory={selectedCategory} onAddProduct={addProductToInvoice} />
+            </div>
           </CardContent>
         </Card>
       </div>
